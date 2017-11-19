@@ -1,0 +1,76 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=portfile:et:sw=4:ts=4:sts=4
+
+PortSystem          1.0
+
+name                cargo
+version             0.22.0
+categories          devel
+platforms           darwin
+
+universal_variant   no
+license             {MIT Apache-2}
+maintainers         sean openmaintainer \
+                    @ajm188
+
+description         The Rust package manager
+long_description    Cargo downloads your Rust project’s dependencies and compiles your project.
+homepage            http://crates.io
+
+master_sites        https://github.com/rust-lang/cargo/archive/
+distname            ${version}
+checksums           rmd160 30542dcf00755be02baef634ec0f112240e23604 \
+                    sha256 6740e2f8d035a5a5246a12e84a141d37ad4c2b826355aff497e6f1fcfb637aef
+
+worksrcdir          ${name}-${version}
+
+pre-configure {
+    file mkdir ${workpath}/rustup
+    file mkdir ${workpath}/bin
+}
+
+configure {
+    system "curl https://sh.rustup.rs -sSf > ${workpath}/rustup-init"
+    system "chmod +x ${workpath}/rustup-init"
+    system "RUSTUP_HOME=${workpath}/rustup CARGO_HOME=${workpath} \
+        ${workpath}/rustup-init -y --no-modify-path"
+    system -W ${workpath}/bin "./rustup default stable"
+}
+
+post-configure {
+    file delete ${workpath}/rustup-init
+}
+
+# the DYLD_FALLBACK_LIBRARY_PATH is ugly but currently the only way to have
+# rust find the libraries installed via rpath; using install_name_tool wouldn't
+# help in this situation because rust and cargo both download binaries to
+# bootstrap themselves. Since this is just a build argument, I think it's fine
+# for now.
+build {
+    system -W ${worksrcpath} \
+        "PATH=${workpath}/bin:${prefix}/bin:${prefix}/sbin:/bin:/sbin:/usr/bin:/usr/sbin \
+            VERBOSE=1 \
+            CC=${configure.cc} \
+            CXX=${configure.cxx} \
+            CPP=\"${configure.cc} -E\" \
+            DYLD_FALLBACK_LIBRARY_PATH=\"${prefix}/lib\" \
+        ${workpath}/bin/cargo \
+        build \
+        --release"
+}
+
+post-build {
+    file delete -force ${workpath}/rustup
+    file delete -force ${workpath}/bin
+}
+
+destroot.cmd        cp
+destroot.target     ${worksrcpath}/target/release/cargo
+destroot.destdir    ${destroot}${prefix}/bin/cargo
+
+post-destroot {
+    xinstall -d -m 0755 ${destroot}${prefix}/share/man/man1
+    copy ${worksrcpath}/src/etc/man/ ${destroot}${prefix}/share/man/man1
+
+    xinstall -d -m 0755 ${destroot}${prefix}/share/bash-completion/completions
+    copy ${worksrcpath}/src/etc/cargo.bashcomp.sh ${destroot}${prefix}/share/bash-completion/completions/cargo
+}
